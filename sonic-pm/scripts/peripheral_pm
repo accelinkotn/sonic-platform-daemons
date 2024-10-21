@@ -1,0 +1,273 @@
+import sys
+import threading
+import time
+import random
+from datetime import datetime, timedelta
+from swsscommon import swsscommon
+from sonic_py_common import daemon_base, logger
+
+
+try:
+    import sonic_platform.platform
+    platform_chassis = sonic_platform.platform.Platform().get_chassis()
+except Exception as e:
+    print("Failed to update platform_chassis - {}".format(e))
+    sys.exit(1)
+
+SYSLOG_IDENTIFIER = "peripheral_pm"
+
+PM_UPDATE_PERIOD_SECS = 3
+
+
+device_attributes = {
+    'PSU':{'voltage':{'precision':1},'current':{'precision':1}},
+    'FAN':{'speed':{'precision':0}}
+}
+
+
+def get_nearest_15min(now):
+    # 获取当前时间的小时和分钟
+    hour = now.hour
+    minute = now.minute
+    
+    # 计算最近的15分钟整点
+    if minute < 15:
+        nearest_time = datetime(now.year, now.month, now.day, hour, 0)
+    elif 15 <= minute < 30:
+        nearest_time = datetime(now.year, now.month, now.day, hour, 15)
+    elif 30 <= minute < 45:
+        nearest_time = datetime(now.year, now.month, now.day, hour, 30)
+    else:
+        nearest_time = datetime(now.year, now.month, now.day, hour, 45)
+    
+    return nearest_time
+
+class PerformanceStats(logger.Logger):
+    def __init__(self,log_identifier):
+        super(PerformanceStats, self).__init__(log_identifier)
+        self.stats = {}
+        self.running = False
+        self.thread = None
+        # Connect to STATE_DB and create psu/chassis info tables
+        self.state_db = daemon_base.db_connect("COUNTERS_DB")
+
+    def add_device(self, objname, obj):            
+        devicetype = objname[:objname.find("_")]
+        exist_attr_list = []
+        dictattr = device_attributes[devicetype]
+        for attr in dictattr:
+            attrfuncname =f'get_{attr}'
+            try:
+                getattr(obj, attrfuncname)
+            except Exception as e:
+                self.log_warning("Failed to get func {} -{}".format(e, attrfuncname))
+                continue
+            exist_attr_list.append(attr)
+            
+        self.stats[objname] = {'name':objname, 'obj': obj, 'attr_list': exist_attr_list, 'stats': {key: self.initialize_properties() for key in device_attributes[devicetype]}}
+
+    def initialize_properties(self):
+        return {
+            'startime_15min':None,
+            'current_15min_value': None,
+            'max_15min_value': None,
+            'max_15min_timestamp': None,
+            'min_15min_value': None,
+            'min_15min_timestamp': None,
+            'value_sum_15min_value': 0,
+            'value_count_15min': 0,
+            'avg_15min_value': 0,
+            'last_15min_reset': None,
+    
+            'startime_24hr':None,
+            'current_24hr_value': None,
+            'max_24hr_value': None,
+            'max_24hr_timestamp': None,
+            'min_24hr_value': None,
+            'min_24hr_timestamp': None,
+            'value_sum_24hr_value': 0,
+            'value_count_24hr': 0,
+            'avg_24hr_value': 0,
+            'last_24hr_reset': None
+        }
+
+    def start(self):
+        if not self.running:
+            self.log_notice("perpheral_pm start running!")
+            self.running = True
+            self.thread = threading.Thread(target=self.run)
+            self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+    
+    def getnstimes(self,timevalue):
+        delta = timevalue - datetime(1970,1,1)
+        days_to_nanoseconds = delta.days * 24 * 3600 * 1000000000
+        seconds_to_nanoseconds = delta.seconds * 1000000000
+        microseconds_to_nanoseconds = delta.microseconds * 1000
+        total_nanoseconds = days_to_nanoseconds + seconds_to_nanoseconds + microseconds_to_nanoseconds
+        return total_nanoseconds
+
+    
+    def updatecouterDB(self,devicedata):
+        name = devicedata['name']
+        devicetype = name[:name.index("_")]
+        redis_tbl = swsscommon.Table(self.state_db, devicetype)
+        attr_list = devicedata['attr_list']
+
+        for attr in attr_list:
+            stats = devicedata['stats'][attr]
+
+            key = name + f'_{attr}' + ':15_pm_current'
+            fvs = swsscommon.FieldValuePairs(
+            [('starttime', str(self.getnstimes(stats['startime_15min']))),
+             ('instant', str(stats['current_15min_value'])),
+             ('avg',str(stats['avg_15min_value'])),
+             ('max', str(stats['max_15min_value'])),
+             ('max-time', str(self.getnstimes(stats['max_15min_timestamp']))),
+             ('min', str(stats['min_15min_value'])),
+             ('min-time', str(self.getnstimes(stats['min_15min_timestamp']))),
+            ])
+            redis_tbl.set(key, fvs)
+
+            key = name + f'_{attr}' + ':24_pm_current'
+            fvs = swsscommon.FieldValuePairs(
+            [('starttime', str(self.getnstimes(stats['startime_24hr']))),
+             ('instant', str(stats['current_24hr_value'])),
+             ('avg',str(stats['avg_24hr_value'])),
+             ('max', str(stats['max_24hr_value'])),
+             ('max-time', str(self.getnstimes(stats['max_24hr_timestamp']))),
+             ('min', str(stats['min_24hr_value'])),
+             ('min-time', str(self.getnstimes(stats['min_24hr_timestamp']))),
+            ])
+            redis_tbl.set(key, fvs)
+
+    def run(self):
+        while self.running:
+            current_time = datetime.now()
+            for device_data in self.stats.values():
+                obj = device_data['obj']
+
+                try:
+                    presence = obj.get_presence()
+                except Exception :
+                    presence = True
+                if(presence!= True): 
+                    continue
+
+                attr_list = device_data['attr_list']
+                for attr in attr_list:
+                    value = getattr(obj, f'get_{attr}')()
+                    stats = device_data['stats'][attr]
+                    devicetype = device_data['name'][:device_data['name'].index("_")]
+                    precision = device_attributes[devicetype][attr]['precision']
+                    self.update_stats(stats, value, current_time,precision) 
+                self.updatecouterDB(device_data)               
+            time.sleep(PM_UPDATE_PERIOD_SECS) 
+
+    def update_stats(self, stats, value, current_time, precision):
+        # 15 分钟的统计数据
+        if current_time.minute % 15 == 0 and (stats['last_15min_reset'] is None or stats['last_15min_reset'].minute != current_time.minute):
+            stats['value_sum_15min_value'] = 0
+            stats['value_count_15min'] = 0
+            stats['current_15min_value'] = value
+            stats['max_15min_value'] = value
+            stats['min_15min_value'] = value
+            stats['avg_15min_value'] = value
+            stats['last_15min_reset'] = current_time
+            stats['max_15min_timestamp'] = current_time
+            stats['min_15min_timestamp'] = current_time
+            stats['startime_15min'] = current_time.replace(second=0, microsecond=0)
+        else:
+            stats['current_15min_value'] = value
+            stats['value_sum_15min_value'] += value
+            stats['value_count_15min'] += 1
+
+            if stats['startime_15min'] is None:
+                stats['startime_15min'] = get_nearest_15min(current_time)
+
+            if stats['max_15min_value'] is None:
+                stats['max_15min_value'] = value
+                stats['max_15min_timestamp'] = current_time
+            else:
+                if value > stats['max_15min_value']:
+                    stats['max_15min_value'] = value
+                    stats['max_15min_timestamp'] = current_time
+                
+            if stats['min_15min_value'] is None:
+                stats['min_15min_value'] = value
+                stats['min_15min_timestamp'] = current_time
+            else:
+                if value < stats['min_15min_value']:
+                    stats['min_15min_value'] = value
+                    stats['min_15min_timestamp'] = current_time
+
+            if precision ==0:
+                stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'])
+            else:
+                stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'],precision)
+
+        # 24 小时的统计数据
+        if current_time.hour == 0 and (stats['last_24hr_reset'] is None or stats['last_24hr_reset'].day != current_time.day):
+            stats['value_sum_24hr_value'] = 0
+            stats['value_count_24hr'] = 0
+            stats['current_24hr_value'] = value
+            stats['max_24hr_value'] = value
+            stats['min_24hr_value'] = value
+            stats['avg_24hr_value'] = value
+            stats['last_24hr_reset'] = current_time
+            stats['max_24hr_timestamp'] = current_time
+            stats['min_24hr_timestamp'] = current_time
+            stats['startime_24hr'] = current_time.replace(minute=0, second=0, microsecond=0)
+        else:
+            stats['current_24hr_value'] = value
+            stats['value_sum_24hr_value'] += value
+            stats['value_count_24hr'] += 1
+
+            if stats['startime_24hr'] is None:
+                stats['startime_24hr'] = current_time.replace(minute=0, second=0, microsecond=0)
+
+            if stats['max_24hr_value'] is None:
+                stats['max_24hr_value'] = value
+                stats['max_24hr_timestamp'] = current_time
+            else:
+                if value > stats['max_24hr_value']:
+                    stats['max_24hr_value'] = value
+                    stats['max_24hr_timestamp'] = current_time
+                
+            if stats['min_24hr_value'] is None:
+                stats['min_24hr_value'] = value
+                stats['min_24hr_timestamp'] = current_time
+            else:
+                if value < stats['min_24hr_value']:
+                    stats['min_24hr_value'] = value
+                    stats['min_24hr_timestamp'] = current_time
+
+            if precision == 0:
+                stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'])
+            else:
+                stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'],precision)
+
+    
+performance_stats = PerformanceStats(SYSLOG_IDENTIFIER)
+
+for index, psu in enumerate(platform_chassis.get_all_psus()):
+    devicename = f'PSU_{index}'
+    performance_stats.add_device(devicename, psu)
+
+
+for drawer_index, drawer in enumerate(platform_chassis.get_all_fan_drawers()):
+            for fan_index, fan in enumerate(drawer.get_all_fans()):
+                devicename = f'FAN_{drawer_index}_{fan_index}'
+                performance_stats.add_device(devicename, fan)
+
+performance_stats.start()
+
+
+
+     
+
+            
