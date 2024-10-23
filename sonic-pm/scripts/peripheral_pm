@@ -9,9 +9,8 @@ from sonic_py_common import daemon_base, logger
 
 try:
     import sonic_platform.platform
-    platform_chassis = sonic_platform.platform.Platform().get_chassis()
 except Exception as e:
-    print("Failed to update platform_chassis - {}".format(e))
+    print("Failed to import sonic_platform - {}".format(e))
     sys.exit(1)
 
 SYSLOG_IDENTIFIER = "peripheral_pm"
@@ -252,22 +251,30 @@ class PerformanceStats(logger.Logger):
                 stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'],precision)
 
     
-performance_stats = PerformanceStats(SYSLOG_IDENTIFIER)
-
-for index, psu in enumerate(platform_chassis.get_all_psus()):
-    devicename = f'PSU_{index}'
-    performance_stats.add_device(devicename, psu)
-
-
-for drawer_index, drawer in enumerate(platform_chassis.get_all_fan_drawers()):
-            for fan_index, fan in enumerate(drawer.get_all_fans()):
-                devicename = f'FAN_{drawer_index}_{fan_index}'
-                performance_stats.add_device(devicename, fan)
-
-performance_stats.start()
 
 
 
+def main():
+
+    platform_chassis = sonic_platform.platform.Platform().get_chassis()
+
+    performance_stats = PerformanceStats(SYSLOG_IDENTIFIER)
+
+    for index, psu in enumerate(platform_chassis.get_all_psus()):
+        devicename = f'PSU_{index}'
+        performance_stats.add_device(devicename, psu)
+
+
+    for drawer_index, drawer in enumerate(platform_chassis.get_all_fan_drawers()):
+        for fan_index, fan in enumerate(drawer.get_all_fans()):
+            devicename = f'FAN_{drawer_index}_{fan_index}'
+            performance_stats.add_device(devicename, fan)
+
+    performance_stats.start()
+
+
+if __name__ == '__main__':
+    main()
      
 
             

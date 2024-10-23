@@ -1,0 +1,209 @@
+{
+    "chassis": {
+        "name": "OLSV-CHASSIS",
+        "description": "KVM Virtual OLS",
+        "components": [],
+        "modules": [
+            {
+                "name": "SUPERVISOR0",
+                "description": "CONTROL-CARD",
+                "module-status": "Online",
+                "components": [
+                    {
+                        "name": "BOOT",
+                        "description": "Performs initialization of hardware components during booting"
+                    },
+                    {
+                        "name": "FPGA",
+                        "description": "Platform managment controller for on-board components"
+                    },
+                    {
+                        "name": "CPLD",
+                        "description": "Used for managing IO modules"
+                    },
+                    {
+                        "name": "ONIE",
+                        "description": "Open network install environment"
+                    }
+                ]
+            },
+            {
+                "name": "LINE-CARD0",
+                "description": "E110C CARD",
+                "module-status": "Online",
+                "components": [
+                    {
+                        "name": "AMPLIFIER-1-1-1",
+                        "description": "Optical amplifier (pre)"
+                    },
+                    {
+                        "name": "AMPLIFIER-1-1-2",
+                        "description": "Optical amplifier (boost)"
+                    },
+                    {
+                         "name": "OSC-1-1-1",
+                         "description": "Optical Supervisory Channel"
+                    },
+                    {
+                         "name": "APS-1-1-1",
+                         "description": "Optical automatic protection switch"
+                    },
+                    {
+                          "name": "ATTENUATOR-1-1-1",
+                         "description": "Optical attenuator"
+                    },
+                    {
+                         "name": "ATTENUATOR-1-1-2",
+                         "description": "Optical attenuator"
+                    },
+                    {
+                         "name": "ATTENUATOR-1-1-3",
+                         "description": "Optical attenuator"
+                    }
+                ]
+            },
+            {
+                "name": "LINE-CARD1",
+                "description": "E110C card",
+                "module-status": "Online",
+                "components": [
+                    {
+                        "name": "AMPLIFIER-1-2-1",
+                        "description": "Optical amplifier (pre)"
+                    },
+                    {
+                        "name": "AMPLIFIER-1-2-2",
+                        "description": "Optical amplifier (boost)"
+                    },
+                    {
+                         "name": "OSC-1-2-1",
+                         "description": "Optical Supervisory Channel"
+                    },
+                    {
+                         "name": "APS-1-2-1",
+                         "description": "Optical automatic protection switch"
+                    },
+                    {
+                          "name": "ATTENUATOR-1-2-1",
+                         "description": "Optical attenuator"
+                    },
+                    {
+                         "name": "ATTENUATOR-1-2-2",
+                         "description": "Optical attenuator"
+                    },
+                    {
+                         "name": "ATTENUATOR-1-2-3",
+                         "description": "Optical attenuator"
+                    }
+                ]
+            },
+            {
+                "name": "LINE-CARD2",
+                "description": "P230C card",
+                "module-status": "Online",
+                "components": [
+                    {
+                        "name": "TRANSCEIVER-1-3-C1",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-3-C2",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-3-C3",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-3-C4",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-3-L1",
+                        "description": "Line optical transceiver"
+                    }
+                ]
+            },
+            {
+                "name": "LINE-CARD3",
+                "description": "P230C card",
+                "module-status": "Online",
+                "components": [
+                    {
+                        "name": "TRANSCEIVER-1-4-C1",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-4-C2",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-4-C3",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-4-C4",
+                        "description": "Client optical transceiver"
+                    },
+                    {
+                        "name": "TRANSCEIVER-1-4-L1",
+                        "description": "Line optical transceiver"
+                    }
+                ]
+            }
+        ],
+        "psus": [
+            {
+                "name": "PSU0",
+                "status_led": "green"
+            },
+            {
+                "name": "PSU1",
+                "status_led": "green"
+            }
+        ],
+        "fan_drawers": [
+          {
+            "name": "FanTray0",
+            "fans": [
+                {
+                    "name": "FanTray0-Fan0",
+                    "speed": 30,
+                    "status_led": "green"
+                },
+                {
+                    "name": "FanTray0-Fan1",
+                    "speed": 40,
+                    "status_led": "green"
+                },
+                {
+                    "name": "FanTray0-Fan2",
+                    "speed": 50,
+                    "status_led": "green"
+                },
+                {
+                    "name": "FanTray0-Fan3",
+                    "speed": 60,
+                    "status_led": "green"
+                }
+            ]
+          }
+        ],
+        "thermals": [
+            {
+                "name": "System Board",
+                "high-crit-threshold": 70,
+                "low-crit-threshold": 0,
+                "maximum-recorded": 60,
+                "minimum-recorded": 10
+            },
+            {
+                "name": "System Exhaust",
+                "high-crit-threshold": 70,
+                "low-crit-threshold": 0,
+                "maximum-recorded": 60,
+                "minimum-recorded": 10
+            }
+        ]
+    }
+}
