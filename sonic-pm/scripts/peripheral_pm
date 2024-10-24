@@ -1,3 +1,4 @@
+import signal
 import sys
 import threading
 import time
@@ -7,13 +8,14 @@ from swsscommon import swsscommon
 from sonic_py_common import daemon_base, logger
 
 
-try:
-    import sonic_platform.platform
-except Exception as e:
-    print("Failed to import sonic_platform - {}".format(e))
-    sys.exit(1)
+# TODO: Once we no longer support Python 2, we can eliminate this and get the
+# name using the 'name' field (e.g., `signal.SIGINT.name`) starting with Python 3.5
+SIGNALS_TO_NAMES_DICT = dict((getattr(signal, n), n)
+                             for n in dir(signal) if n.startswith('SIG') and '_' not in n)
 
 SYSLOG_IDENTIFIER = "peripheral_pm"
+
+exit_code = 0
 
 PM_UPDATE_PERIOD_SECS = 3
 
@@ -25,11 +27,11 @@ device_attributes = {
 
 
 def get_nearest_15min(now):
-    # 获取当前时间的小时和分钟
+
     hour = now.hour
     minute = now.minute
     
-    # 计算最近的15分钟整点
+
     if minute < 15:
         nearest_time = datetime(now.year, now.month, now.day, hour, 0)
     elif 15 <= minute < 30:
@@ -41,14 +43,31 @@ def get_nearest_15min(now):
     
     return nearest_time
 
-class PerformanceStats(logger.Logger):
+class PerformanceStats((daemon_base.DaemonBase)):
     def __init__(self,log_identifier):
         super(PerformanceStats, self).__init__(log_identifier)
         self.stats = {}
-        self.running = False
-        self.thread = None
+        self.first_run = True
+        self.stop_event = threading.Event()
         # Connect to STATE_DB and create psu/chassis info tables
         self.state_db = daemon_base.db_connect("COUNTERS_DB")
+
+        # Load new platform api class
+        try:
+            import sonic_platform.platform
+            platform_chassis = sonic_platform.platform.Platform().get_chassis()
+        except Exception as e:
+            self.log_error("Failed to load chassis due to {}".format(repr(e)))
+            sys.exit(1)
+        
+        for index, psu in enumerate(platform_chassis.get_all_psus()):
+            devicename = f'PSU_{index}'
+            self.add_device(devicename, psu)
+
+        for drawer_index, drawer in enumerate(platform_chassis.get_all_fan_drawers()):
+            for fan_index, fan in enumerate(drawer.get_all_fans()):
+                devicename = f'FAN_{drawer_index}_{fan_index}'
+                self.add_device(devicename, fan)
 
     def add_device(self, objname, obj):            
         devicetype = objname[:objname.find("_")]
@@ -90,18 +109,6 @@ class PerformanceStats(logger.Logger):
             'last_24hr_reset': None
         }
 
-    def start(self):
-        if not self.running:
-            self.log_notice("perpheral_pm start running!")
-            self.running = True
-            self.thread = threading.Thread(target=self.run)
-            self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join()
-    
     def getnstimes(self,timevalue):
         delta = timevalue - datetime(1970,1,1)
         days_to_nanoseconds = delta.days * 24 * 3600 * 1000000000
@@ -143,13 +150,30 @@ class PerformanceStats(logger.Logger):
              ('min-time', str(self.getnstimes(stats['min_24hr_timestamp']))),
             ])
             redis_tbl.set(key, fvs)
+    
+    def signal_handler(self, sig, frame):
+        FATAL_SIGNALS = [signal.SIGINT, signal.SIGTERM]
+        NONFATAL_SIGNALS = [signal.SIGHUP]
+
+        global exit_code
+
+        if sig in FATAL_SIGNALS:
+            self.log_info("Caught signal '{}' - exiting...".format(SIGNALS_TO_NAMES_DICT[sig]))
+            exit_code = 128 + sig  # Make sure we exit with a non-zero code so that supervisor will try to restart us
+            self.stop_event.set()
+        elif sig in NONFATAL_SIGNALS:
+            self.log_info("Caught signal '{}' - ignoring...".format(SIGNALS_TO_NAMES_DICT[sig]))
+        else:
+            self.log_warning("Caught unhandled signal '{}' - ignoring...".format(SIGNALS_TO_NAMES_DICT[sig]))
 
     def run(self):
-        while self.running:
+            if self.stop_event.wait(PM_UPDATE_PERIOD_SECS):
+                # We received a fatal signal
+                return False
+
             current_time = datetime.now()
             for device_data in self.stats.values():
                 obj = device_data['obj']
-
                 try:
                     presence = obj.get_presence()
                 except Exception :
@@ -164,11 +188,14 @@ class PerformanceStats(logger.Logger):
                     devicetype = device_data['name'][:device_data['name'].index("_")]
                     precision = device_attributes[devicetype][attr]['precision']
                     self.update_stats(stats, value, current_time,precision) 
-                self.updatecouterDB(device_data)               
-            time.sleep(PM_UPDATE_PERIOD_SECS) 
+                self.updatecouterDB(device_data)  
+
+            if self.first_run:
+                self.first_run = False             
+            
+            return True
 
     def update_stats(self, stats, value, current_time, precision):
-        # 15 分钟的统计数据
         if current_time.minute % 15 == 0 and (stats['last_15min_reset'] is None or stats['last_15min_reset'].minute != current_time.minute):
             stats['value_sum_15min_value'] = 0
             stats['value_count_15min'] = 0
@@ -209,7 +236,6 @@ class PerformanceStats(logger.Logger):
             else:
                 stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'],precision)
 
-        # 24 小时的统计数据
         if current_time.hour == 0 and (stats['last_24hr_reset'] is None or stats['last_24hr_reset'].day != current_time.day):
             stats['value_sum_24hr_value'] = 0
             stats['value_count_24hr'] = 0
@@ -251,30 +277,18 @@ class PerformanceStats(logger.Logger):
                 stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'],precision)
 
     
-
-
-
 def main():
+    perpmd = PerformanceStats(SYSLOG_IDENTIFIER)
 
-    platform_chassis = sonic_platform.platform.Platform().get_chassis()
+    perpmd.log_info("Starting up...")
 
-    performance_stats = PerformanceStats(SYSLOG_IDENTIFIER)
+    while perpmd.run():
+        pass
 
-    for index, psu in enumerate(platform_chassis.get_all_psus()):
-        devicename = f'PSU_{index}'
-        performance_stats.add_device(devicename, psu)
+    perpmd.log_info("Shutting down...")
 
-
-    for drawer_index, drawer in enumerate(platform_chassis.get_all_fan_drawers()):
-        for fan_index, fan in enumerate(drawer.get_all_fans()):
-            devicename = f'FAN_{drawer_index}_{fan_index}'
-            performance_stats.add_device(devicename, fan)
-
-    performance_stats.start()
+    return exit_code
 
 
 if __name__ == '__main__':
-    main()
-     
-
-            
+    sys.exit(main())           
