@@ -168,22 +168,18 @@
             "fans": [
                 {
                     "name": "FanTray0-Fan0",
-                    "speed": 30,
                     "status_led": "green"
                 },
                 {
                     "name": "FanTray0-Fan1",
-                    "speed": 40,
                     "status_led": "green"
                 },
                 {
                     "name": "FanTray0-Fan2",
-                    "speed": 50,
                     "status_led": "green"
                 },
                 {
                     "name": "FanTray0-Fan3",
-                    "speed": 60,
                     "status_led": "green"
                 }
             ]
