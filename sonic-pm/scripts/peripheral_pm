@@ -202,86 +202,84 @@ class PerformanceStats((daemon_base.DaemonBase)):
             
             return True
 
-    def update_stats(self, stats, value, current_time, precision):
-        if current_time.minute % 15 == 0 and (stats['last_15min_reset'] is None or stats['last_15min_reset'].minute != current_time.minute):
-            stats['value_sum_15min_value'] = 0
-            stats['value_count_15min'] = 0
-            stats['current_15min_value'] = value
+    def reset_15min_stats(self,stats, value, current_time):
+        stats['value_sum_15min_value'] = 0
+        stats['value_count_15min'] = 0
+        stats['current_15min_value'] = value
+        stats['max_15min_value'] = value
+        stats['min_15min_value'] = value
+        stats['avg_15min_value'] = value
+        stats['last_15min_reset'] = current_time
+        stats['max_15min_timestamp'] = current_time
+        stats['min_15min_timestamp'] = current_time
+        stats['startime_15min'] = current_time.replace(second=0, microsecond=0)
+
+    def update_15min_stats(self,stats, value, current_time, precision):
+        stats['current_15min_value'] = value
+        stats['value_sum_15min_value'] += value
+        stats['value_count_15min'] += 1
+
+        if stats['startime_15min'] is None:
+            stats['startime_15min'] = get_nearest_15min(current_time)
+
+        if stats['max_15min_value'] is None or value > stats['max_15min_value']:
             stats['max_15min_value'] = value
-            stats['min_15min_value'] = value
-            stats['avg_15min_value'] = value
-            stats['last_15min_reset'] = current_time
             stats['max_15min_timestamp'] = current_time
+
+        if stats['min_15min_value'] is None or value < stats['min_15min_value']:
+            stats['min_15min_value'] = value
             stats['min_15min_timestamp'] = current_time
-            stats['startime_15min'] = current_time.replace(second=0, microsecond=0)
-        else:
-            stats['current_15min_value'] = value
-            stats['value_sum_15min_value'] += value
-            stats['value_count_15min'] += 1
 
-            if stats['startime_15min'] is None:
-                stats['startime_15min'] = get_nearest_15min(current_time)
-
-            if stats['max_15min_value'] is None:
-                stats['max_15min_value'] = value
-                stats['max_15min_timestamp'] = current_time
-            else:
-                if value > stats['max_15min_value']:
-                    stats['max_15min_value'] = value
-                    stats['max_15min_timestamp'] = current_time
-                
-            if stats['min_15min_value'] is None:
-                stats['min_15min_value'] = value
-                stats['min_15min_timestamp'] = current_time
-            else:
-                if value < stats['min_15min_value']:
-                    stats['min_15min_value'] = value
-                    stats['min_15min_timestamp'] = current_time
-
-            if precision ==0:
+        if stats['value_count_15min'] > 0:
+            if precision == 0:
                 stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'])
             else:
-                stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'],precision)
+                stats['avg_15min_value'] = round(stats['value_sum_15min_value'] / stats['value_count_15min'], precision)
 
-        if current_time.hour == 0 and (stats['last_24hr_reset'] is None or stats['last_24hr_reset'].day != current_time.day):
-            stats['value_sum_24hr_value'] = 0
-            stats['value_count_24hr'] = 0
-            stats['current_24hr_value'] = value
-            stats['max_24hr_value'] = value
-            stats['min_24hr_value'] = value
-            stats['avg_24hr_value'] = value
-            stats['last_24hr_reset'] = current_time
-            stats['max_24hr_timestamp'] = current_time
-            stats['min_24hr_timestamp'] = current_time
+    def reset_24hr_stats(self,stats, value, current_time):
+        stats['value_sum_24hr_value'] = 0
+        stats['value_count_24hr'] = 0
+        stats['current_24hr_value'] = value
+        stats['max_24hr_value'] = value
+        stats['min_24hr_value'] = value
+        stats['avg_24hr_value'] = value
+        stats['last_24hr_reset'] = current_time
+        stats['max_24hr_timestamp'] = current_time
+        stats['min_24hr_timestamp'] = current_time
+        stats['startime_24hr'] = current_time.replace(minute=0, second=0, microsecond=0)
+
+    def update_24hr_stats(self,stats, value, current_time, precision):
+        stats['current_24hr_value'] = value
+        stats['value_sum_24hr_value'] += value
+        stats['value_count_24hr'] += 1
+
+        if stats['startime_24hr'] is None:
             stats['startime_24hr'] = current_time.replace(minute=0, second=0, microsecond=0)
-        else:
-            stats['current_24hr_value'] = value
-            stats['value_sum_24hr_value'] += value
-            stats['value_count_24hr'] += 1
 
-            if stats['startime_24hr'] is None:
-                stats['startime_24hr'] = current_time.replace(minute=0, second=0, microsecond=0)
+        if stats['max_24hr_value'] is None or value > stats['max_24hr_value']:
+            stats['max_24hr_value'] = value
+            stats['max_24hr_timestamp'] = current_time
 
-            if stats['max_24hr_value'] is None:
-                stats['max_24hr_value'] = value
-                stats['max_24hr_timestamp'] = current_time
-            else:
-                if value > stats['max_24hr_value']:
-                    stats['max_24hr_value'] = value
-                    stats['max_24hr_timestamp'] = current_time
-                
-            if stats['min_24hr_value'] is None:
-                stats['min_24hr_value'] = value
-                stats['min_24hr_timestamp'] = current_time
-            else:
-                if value < stats['min_24hr_value']:
-                    stats['min_24hr_value'] = value
-                    stats['min_24hr_timestamp'] = current_time
+        if stats['min_24hr_value'] is None or value < stats['min_24hr_value']:
+            stats['min_24hr_value'] = value
+            stats['min_24hr_timestamp'] = current_time
 
+        if stats['value_count_24hr'] > 0:
             if precision == 0:
                 stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'])
             else:
-                stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'],precision)
+                stats['avg_24hr_value'] = round(stats['value_sum_24hr_value'] / stats['value_count_24hr'], precision)
+
+    def update_stats(self, stats, value, current_time, precision):
+        if current_time.minute % 15 == 0 and (stats['last_15min_reset'] is None or stats['last_15min_reset'].minute != current_time.minute):
+            self.reset_15min_stats(stats, value, current_time)
+        else:
+            self.update_15min_stats(stats, value, current_time, precision)
+
+        if current_time.hour == 0 and (stats['last_24hr_reset'] is None or stats['last_24hr_reset'].day != current_time.day):
+            self.reset_24hr_stats(stats, value, current_time)
+        else:
+            self.update_24hr_stats(stats, value, current_time, precision)
 
     
 def main():
